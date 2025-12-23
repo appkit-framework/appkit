@@ -1,0 +1,226 @@
+#!/usr/bin/env php
+<?php
+
+/****************************************
+ * FUNCTIONS
+ ****************************************/
+
+function printDivider() {
+    echo "----------------------------------------\n";
+}
+
+function promptString($prompt, $optional = false, $default = '') {
+    if($optional)
+        $prompt .= ' (optional)';
+    else if(!empty($default))
+        $prompt .= " [$default]";
+    $prompt .= ': ';
+
+    do {
+        $input = readline($prompt);
+        if($optional)
+            return $input;
+        if(empty($input))
+            $input = $default;
+    } while(empty($input));
+
+    return $input;
+}
+
+function promptYesNo($prompt, $default = null) {
+    $prompt .= ' (yes/no)';
+    if($default !== null)
+        $prompt .= ' (' . ($default ? 'yes' : 'no') . ')';
+    $prompt .= ': ';
+
+    do {
+        $inputStr = strtolower(readline($prompt));
+
+        if($inputStr == 'yes' || $inputStr == 'y')
+            $input = true;
+        else if($inputStr == 'no' || $inputStr == 'n')
+            $input = false;
+        else
+            $input = null;
+
+        if($input === null)
+            $input = $default;
+    } while($input === null);
+
+    return $input;
+}
+
+function genNamespace($name) {
+    $namespace = preg_replace('/[^a-zA-Z0-9]+/', ' ', $name);
+    $namespace = ucwords(strtolower($namespace));
+    return str_replace(' ', '', $namespace);
+}
+
+function createDir($path) {
+    if(is_dir($path))
+        echo "Warning: Directory $path already exists, skipping...\n";
+    else if(mkdir($path))
+        echo "Created directory $path\n";
+    else
+        die("Error: Failed to create directory $path\n");
+}
+
+function createFile($path, $content) {
+    if(file_exists($path))
+        $write = promptYesNo("File $path already exists, overwrite?", true);
+    else
+        $write = true;
+
+    if($write) {
+        if(file_put_contents($path, $content) === false)
+            die("Error: Failed to create file $path\n");
+        echo "Created file $path\n";
+    }
+}
+
+/****************************************
+ * GET PROJECT CONFIGURATION
+ ****************************************/
+
+$vendor = promptString('Vendor name');
+$domain = promptString('App domain', true);
+$name = promptString('App name');
+$namespace = promptString('Project namespace', false, genNamespace($name));
+
+printDivider();
+
+/****************************************
+ * CREATE FILES
+ ****************************************/
+
+// Create /src
+
+$root = realpath(dirname($_composer_autoload_path).'/..');
+echo "Project root: $root\n";
+
+$srcPath = $root.'/src';
+createDir($srcPath);
+
+// Create /src/App.php
+
+$domainLine = $domain != ''
+    ? "\n    protected const DOMAIN = '$domain';"
+    : '';
+$appContent = <<<EOT
+<?php
+
+namespace $namespace;
+
+use AppKit\App\AbstractApp;
+
+class App extends AbstractApp {
+    protected const VENDOR = '$vendor';$domainLine
+    protected const NAME = '$name';
+
+    protected function init(\$config) {
+    }
+}
+EOT;
+
+createFile($srcPath.'/App.php', $appContent);
+
+// Create /config.php
+
+$configContent = <<<'EOT'
+<?php
+
+use AppKit\Log\LogLevel;
+
+return [
+    'log' => [
+        'local' => [
+            'level' => LogLevel::Info,
+            'printStackTraces' => false
+        ]
+    ]
+];
+EOT;
+
+createFile($root.'/config.php', $configContent);
+
+// Create /run
+
+$runnerPath = $root.'/run';
+$runnerContent = <<<EOT
+#!/usr/bin/env php
+<?php
+
+require_once __DIR__.'/vendor/autoload.php';
+
+use $namespace\App;
+
+(new App(require __DIR__.'/config.php')) -> run();
+EOT;
+
+createFile($runnerPath, $runnerContent);
+
+if(chmod($runnerPath, 0755))
+    echo "Set permissions for $runnerPath\n";
+else
+    die("Error: Failed to set permissions for $runnerPath\n");
+
+printDivider();
+
+/****************************************
+ * UPDATE COMPOSER.JSON
+ ****************************************/
+
+// Read & parse
+
+$composerPath = $root.'/composer.json';
+
+$composerContent = @file_get_contents($composerPath);
+if($composerContent === false)
+    die("Error: Failed to read composer.json\n");
+
+$composerJson = json_decode($composerContent, true);
+if($composerJson === null)
+    die("Error: Failed to parse composer.json\n");
+
+// Add namespace
+
+if(isset($composerJson['autoload]']))
+    $updateComposer = promptYesNo("Autoload section already exists in composer.json, overwrite?", true);
+else
+    $updateComposer = true;
+
+if($updateComposer) {
+    $composerJson['autoload'] = [
+        'psr-4' => [
+            $namespace.'\\' => 'src/'
+        ]
+    ];
+
+    // Save
+
+    $composerContent = json_encode($composerJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+    if(!file_put_contents($composerPath, $composerContent))
+        die("Error: Failed to update composer.json\n");
+    echo "Updated composer.json\n";
+}
+
+// Dump autoload
+
+$resultCode = null;
+system('composer dump-autoload', $resultCode);
+
+if($resultCode != 0)
+    die("Error: Failed to dump autoload\n");
+
+printDivider();
+
+/****************************************
+ * SUCCESS MESSAGE
+ ****************************************/
+
+$fullName = $vendor . '/' . ($domain ? "$domain." : '') . $name;
+
+echo "Success! Created project \"$fullName\"\n\n";
+echo "Run your application with:\n";
+echo "  ./run\n\n";
