@@ -184,7 +184,7 @@ if($composerJson === null)
 
 // Add namespace
 
-if(isset($composerJson['autoload]']))
+if(isset($composerJson['autoload']))
     $updateComposer = promptYesNo("Autoload section already exists in composer.json, overwrite?", true);
 else
     $updateComposer = true;
