@@ -2,7 +2,6 @@
     "name": "appkit/appkit",
     "type": "library",
     "description": "The AppKit framework",
-    "minimum-stability": "stable",
     "license": "MIT",
     "require": {
         "appkit/app": "^1.0",
